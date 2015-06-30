@@ -5,11 +5,196 @@
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/css/reset.css">
     <link rel="stylesheet" type="text/css" href="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.css">
     <script src="https://cdn.mxpnl.com/libs/mixpanel-platform/build/mixpanel-platform.v0.latest.min.js"></script>
+    <style>
+      h1{
+        font-size: 23px;
+        color: #545454;
+        width:50%;
+        float:left;
+      }
+      .durationSumDiv{
+        font-size: 18px;
+        display: inline-block;
+        color: #545454;
+        font-weight: bold;
+      }
+      .halfChart{
+        width:50%;
+        float:left;
+      }
+    </style>
   </head>
   <body class="mixpanel-platform-body">
-    <h1>Hello, World!</h1>
+    <div class="mixpanel-platform-section">
+      <div id="dateSelect" style="float: right;"></div>
+      <div style="clear: both;"></div>
+      
+      <h1>Daily Active Users</h1><h1>Monthly Active Users</h1><br clear="all" /><br clear="all" />
+      <div class="halfChart" id="dauGraph"></div><div id="mauGraph" class="halfChart"></div><br clear="all" /><br clear="all" />
+
+      <br clear="all" /><hr /><br clear="all" /><br clear="all" />
+      
+      <h1>DAU/MAU</h1><br clear="all" /><br clear="all" />
+      <div id="dauMauGraph"></div><br clear="all" />
+      
+      <br clear="all" /><hr /><br clear="all" /><br clear="all" />
+      
+      <h1>New Users</h1><br clear="all" /><br clear="all" />
+      <div id="newUserGraph"></div><br clear="all" />
+      
+      <br clear="all" /><hr /><br clear="all" /><br clear="all" />
+      
+      <h1>Top iOS Events</h1><br clear="all" /><br clear="all" />
+      <div class="halfChart" id="iosEventsBarGraph"></div><div class="halfChart" id="iosEventsPieChart"></div><br clear="all" /><br clear="all" />
+      
+      <br clear="all" /><hr /><br clear="all" /><br clear="all" />
+      
+      <h1>Top Android Events</h1><br clear="all" /><br clear="all" />
+      <div class="halfChart" id="androidEventsBarGraph"></div><div class="halfChart" id="androidEventsPieChart"></div><br clear="all" /><br clear="all" />
+      
+      <br clear="all" /><hr /><br clear="all" /><br clear="all" />
+      
+      <h1>Chats by Device</h1><br clear="all" /><br clear="all" />
+      <div id="chatsByDeviceGraph"></div><br clear="all" />
+    </div>
+    
     <script>
-      // Run queries and display results here
+      /* Run query upon doc load */
+      $(document).ready(function(){
+        runQuery();
+      });
+    
+      /* Set some variables */
+      var dauGraph  = $('#dauGraph').MPChart({chartType: 'line'});
+      var mauDauGraph = $('#dauMauGraph').MPChart({chartType: 'line'});
+      var mauGraph = $('#mauGraph').MPChart({chartType:'line'});
+      var newUserGraph = $('#newUserGraph').MPChart({chartType:'line'});
+      var iosEventsBarGraph = $('#iosEventsBarGraph').MPChart({chartType:'bar'});
+      var iosEventsPieChart = $('#iosEventsPieChart').MPChart({chartType:'pie'});
+      var androidEventsBarGraph = $('#androidEventsBarGraph').MPChart({chartType:'bar'});
+      var androidEventsPieChart = $('#androidEventsPieChart').MPChart({chartType:'pie'});
+      var chatsByDeviceGraph = $('#chatsByDeviceGraph').MPChart({chartType:'line'});
+      var eventName = "App Foregrounded"; // Event that defines "active user"
+      var newUserEvent = "API: Account Created"; // New user event
+      var chatEvent = "Chat Sent"; // Chat event
+      
+      /* Get object size */
+      Object.size = function(obj) {
+        var size = 0, key;
+        for (key in obj) {
+            if (obj.hasOwnProperty(key)) size++;
+        }
+        return size;
+      };
+      
+      /* Mixpanel query function */
+      var runQuery = function() {
+        
+        /* Get DAU and MAU */
+        var $dau = MP.api.segment(eventName, {
+              from: moment().subtract(30, 'days'),
+              to: moment().subtract(1, 'days'),
+              unit: 'day',
+              type: 'unique'
+            });
+        var $mau = MP.api.segment(eventName, {
+          from: moment().subtract(30, 'days'),
+          to: moment().subtract(1, 'days'),
+          unit: 'month',
+          type: 'unique'
+        });
+        var $mauForGraph = MP.api.segment(eventName, {
+          from: moment().subtract(3, 'months'),
+          to: moment().subtract(1, 'days'),
+          unit: 'month',
+          type: 'unique'
+        });
+
+        /* Create graphs for DAU and DAU/MAU */
+        $.when($dau, $mau, $mauForGraph).done(function(dau, mau, mauForGraph) {
+          // average the DAU values and divide them by the MAU ones
+          // (we sum the MAU in the case where the 30 days spans over two months)
+          var dauMau = dau.divide(mau.sum()).values();
+          // Set graphs for DAU, MAU and DAU/MAU
+          dauGraph.MPChart('setData', dau);
+          mauGraph.MPChart('setData', mauForGraph);
+          mauDauGraph.MPChart('setData', dauMau);
+        });
+        
+        /* Get number of new users per day */
+        MP.api.segment(newUserEvent,{from:moment().subtract(30,'days'),to:moment().subtract(1,'days'),unit:'day',type:'unique'}).done(function(results){
+          newUserGraph.MPChart('setData', results);
+        });
+        
+        /* Get top events */
+        var $topEvents = MP.api.topEvents({from: moment().subtract(30,'days'),to:moment().subtract(1,'days'), limit: 7});
+        $.when($topEvents).done(function(topEvents){
+          var eventCount = Object.size(topEvents.values()); // Should always be 7
+          
+          /* Build charts for iOS top events */
+          var eventsList = [];
+          var params = {
+            from: moment().subtract(30,'days'),
+            to: moment().subtract(1,'days'),
+            'where': 'properties["$os"] == "iPhone OS"'
+          }
+          // For each iOS top event, gsum up event counts for last month and build graphs
+          for(key in topEvents.values()) {
+            MP.api.events(topEvents.values()[key], params).done(function(results) {
+              eventsList.push(results.values());
+              if(eventsList.length == eventCount){
+                buildChartFromArray(eventsList, iosEventsBarGraph);
+                buildChartFromArray(eventsList,iosEventsPieChart);
+              }
+            });
+          }
+          
+          /* Build charts for Android top events */
+          var params = {
+            from: moment().subtract(30,'days'),
+            to: moment().subtract(1,'days'),
+            'where': 'properties["$os"] == "Android"'
+          }
+          var eventsList2 = [];
+          // For each Android top event, sum up event counts for last month and build graphs
+          for(key in topEvents.values()) {
+            MP.api.events(topEvents.values()[key], params).done(function(results) {
+              eventsList2.push(results.values());
+              if(eventsList2.length == eventCount){
+                buildChartFromArray(eventsList2, androidEventsBarGraph);
+                buildChartFromArray(eventsList2,androidEventsPieChart);
+              }
+            });
+          }
+        });
+        
+        /* Chats by Operating System */
+        MP.api.segment(chatEvent, '$os', {from: moment().subtract(30, 'days'), to:moment().subtract(1,'days'), unit: 'day'}).done(function(results) {
+          chatsByDeviceGraph.MPChart('setData',results);
+        });
+        
+      };
+    /* End query */
+    
+    /**
+    Function that builds a bar chart given event counts 
+    - "events" is structured like - [{"Event Name":{"Event Date": numberofEventsOnDate}, ... }, ...]
+    **/
+    function buildChartFromArray(events, chartElement) {
+      console.log(events);
+      var barChartParams = {};
+      // For each event...
+      for(var i = 0; i < events.length; i++){
+        for(eventName in events[i]){
+          barChartParams[eventName] = 0;
+          for(date in events[i][eventName]){
+            barChartParams[eventName] += events[i][eventName][date];
+          }
+        }
+      }
+      chartElement.MPChart('setData', barChartParams);
+    }
+    
     </script>
   </body>
 </html>
